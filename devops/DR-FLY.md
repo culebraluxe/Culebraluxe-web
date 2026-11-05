@@ -1,8 +1,9 @@
 # Production runbook — CulebraLuxe on Fly
 
-**Production is `culebraluxe-dr` on Fly.io.** `culebraluxe.com` and `www.culebraluxe.com` are served from it.
-Vercel is retired: the deploy path lives in `devops/break-glass/vercel/` and is not used. The parent plan
-and its history: `devops/VERCEL-EXIT.md`.
+**Production is `culebraluxe-prod` on Fly.io**, two machines in Ashburn; `culebraluxe.com` and
+`www.culebraluxe.com` point at its dedicated IPv6. The standby is `culebraluxe-dr` (Chicago, one sleeping machine)
+and `devops/FAILOVER.md` is the switch. Vercel is retired: its deploy path lives in `devops/break-glass/vercel/`
+and is not used. The parent plan and its history: `devops/VERCEL-EXIT.md`.
 
 The one-command version: `scripts/deploy-prod.sh` (a shim) → `scripts/deploy-fly.sh`.
 
@@ -10,9 +11,10 @@ The one-command version: `scripts/deploy-prod.sh` (a shim) → `scripts/deploy-f
 
 | | |
 |---|---|
-| Fly app | `culebraluxe-dr`, region `iad` (Ashburn), one machine, `shared-cpu-1x` / 512 MB |
+| Fly app | `culebraluxe-prod`, region `iad` (Ashburn), **two** machines, `shared-cpu-1x` / 512 MB |
+| Standby | `culebraluxe-dr`, region `ord` (Chicago), one machine that sleeps — `devops/fly.dr.toml` |
 | Image | built on this Mac (`devops/Dockerfile.build`), pushed with `crane`, run by `fly deploy --image` — Fly never builds |
-| Config | `devops/fly.toml` (no `[build]` section on purpose) |
+| Config | `devops/fly.toml` (production) and `devops/fly.dr.toml` (standby); no `[build]` section on purpose |
 | Database | Neon **production** branch — the app resolves it from `APP_ENV` (see the trap below) |
 | Source of the code | Scion `culebraluxe-web@main` by default; `public/` comes from this checkout |
 | DNS | Cloudflare zone `culebraluxe.com`; the cutover from Vercel is Claude + Lisa's job |
@@ -29,7 +31,8 @@ scripts/deploy-fly.sh --no-deploy       # build and push, do not release
 The script builds the wasm UI and the server for linux/amd64, packs the runtime stage, content-hashes the
 assets (`scripts/asset-hash.sh`), pushes with `crane` (resumable; `docker push` as fallback), and deploys
 **bluegreen** — the new machine must answer `/healthz` before the old one is removed, so a bad release
-leaves the previous version serving.
+leaves the previous version serving. Only after production's smoke passes does the script update the standby
+(`culebraluxe-dr`) to the same image, so a DR site is never a build that failed its own smoke. `--no-dr` skips it.
 
 A run is only a success when the smoke says so. It proves:
 
@@ -43,8 +46,8 @@ A run is only a success when the smoke says so. It proves:
 ## Verify by hand
 
 ```sh
-curl -s https://culebraluxe-dr.fly.dev/healthz
-curl -s https://culebraluxe-dr.fly.dev/api/build-info   # changeset / builtAt / databaseTarget
+curl -s https://culebraluxe-prod.fly.dev/healthz
+curl -s https://culebraluxe-prod.fly.dev/api/build-info   # changeset / builtAt / databaseTarget
 scripts/smoke-site.sh                                   # the 20-check integration sweep
 ```
 
@@ -54,30 +57,30 @@ Every deploy prints the previous complete release in its REPORT. Rolling back is
 that image — no rebuild, no source:
 
 ```sh
-fly releases --app culebraluxe-dr --image          # status `complete` rows only
-fly deploy --app culebraluxe-dr --config devops/fly.toml \
+fly releases --app culebraluxe-prod --image        # status `complete` rows only
+fly deploy --app culebraluxe-prod --config devops/fly.toml \
   --image registry.fly.io/culebraluxe-dr:<previous-tag> --strategy bluegreen --wait-timeout 300
 ```
 
 If the release never became healthy, the previous machine is still running; the deploy report names the
 image to go back to and the machine list shows the leftover:
-`fly machine list --app culebraluxe-dr`.
+`fly machine list --app culebraluxe-prod`.
 
 ## Secrets
 
 They live on the Fly app, never in the repo:
 
 ```sh
-fly secrets list --app culebraluxe-dr          # names and digests only, never values
-fly secrets set --stage --app culebraluxe-dr NAME=value
-fly secrets import --stage --app culebraluxe-dr < file-only-in-a-600-file
+fly secrets list --app culebraluxe-prod         # names and digests only, never values
+fly secrets set --stage --app culebraluxe-prod NAME=value
+fly secrets import --stage --app culebraluxe-prod < file-only-in-a-600-file
 ```
 
 **THE TRAP: `APP_ENV` declares the database target, and `VERCEL_ENV` is no longer read.** The app used to
 prefer `VERCEL_ENV` (which Vercel set to `production`), which masked the fact that `APP_ENV` on this app is
 not `production`. `db::resolve_declared_target` now reads `APP_ENV` only, so:
 
-- `APP_ENV` **must** be `production` on `culebraluxe-dr` — otherwise the app resolves DEV and refuses to
+- `APP_ENV` **must** be `production` on `culebraluxe-prod` (and on the standby) — otherwise the app resolves DEV and refuses to
   boot on a schema mismatch (`db.boot_gate`, "N of N required migration(s) are unapplied on dev");
 - `VERCEL_ENV`, if still present, is ignored and should be unset.
 

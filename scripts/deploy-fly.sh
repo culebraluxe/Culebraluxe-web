@@ -22,11 +22,14 @@
 # lines of that output are printed. Every run — success, failure or Ctrl-C — ends with a REPORT: each step's
 # result and time, the image, the smoke test against the Fly site, and the one command to run next.
 #
-# Env: FLY_APP (default culebraluxe-dr), FORGEVCS_BASE_URL, FORGEVCS_REPO, FORGEVCS_REF, FORGEVCS_BYPASS,
+# Env: FLY_APP (default culebraluxe-prod), FLY_DR_APP (default culebraluxe-dr), FORGEVCS_BASE_URL,
+#      FORGEVCS_REPO, FORGEVCS_REF,
 #      FORGEVCS_SECRET_FILE (default /Users/Shared/dev/.forgevcs-maestro.secret), DEPLOY_FLY_LOG_DIR
 set -euo pipefail
 
-FLY_APP="${FLY_APP:-culebraluxe-dr}"
+FLY_APP="${FLY_APP:-culebraluxe-prod}"      # production (devops/fly.toml, iad)
+FLY_DR_APP="${FLY_DR_APP:-culebraluxe-dr}"   # standby (devops/fly.dr.toml, ord, asleep)
+DEPLOY_DR="${DEPLOY_FLY_DR:-1}"             # release to the standby too, after production passes
 SOURCE="scion"
 DEPLOY=1
 VERBOSE=0
@@ -136,7 +139,7 @@ report() {
         "$(printf '%dm%02ds' $((secs / 60)) $((secs % 60)))" "${STEP_DESCS[$i]}"
     done
     printf '\n BUILD\n'
-    printf '   app:        %s\n' "$FLY_APP"
+    printf '   app:        %s%s\n' "$FLY_APP" "$([ "$DEPLOY_DR" = 1 ] && printf '  → standby %s' "$FLY_DR_APP")"
     printf '   source:     %s\n' "${SOURCE_USED:-not reached}"
     [ -z "$SCION_CHANGESET" ] || printf '   changeset:  %s\n' "$SCION_CHANGESET"
     printf '   git commit: %s\n' "${BUILD_SHA:-none recorded}"
@@ -186,6 +189,7 @@ while [ $# -gt 0 ]; do
     --source) SOURCE="${2:-}"; shift 2 ;;
     --source=*) SOURCE="${1#*=}"; shift ;;
     --no-deploy) DEPLOY=0; shift ;;
+    --no-dr) DEPLOY_DR=0; shift ;;
     --resume) RESUME_TAG="${2:-}"; shift 2 ;;
     --remote-build) REMOTE_BUILD=1; shift ;;
     --push) REMOTE_BUILD=0; shift ;;
@@ -257,13 +261,13 @@ if [ -n "$RESUME_TAG" ]; then
     SCION_CHANGESET="$(printf '%s\n' "$IMG_ENV" | sed -n 's/^CULEBRALUXE_SCION_CHANGESET=//p')"
     BUILT_AT="$(printf '%s\n' "$IMG_ENV" | sed -n 's/^CULEBRALUXE_BUILT_AT=//p')"
   fi
-  for s in "1/6|Getting the source" "2/6|Building the stylesheet" "3/6|Compiling the application" "4/6|Packing the finished files"; do
+  for s in "1/7|Getting the source" "2/7|Building the stylesheet" "3/7|Compiling the application" "4/7|Packing the finished files"; do
     skip_step "${s%%|*}" "${s#*|} (skipped: --resume)"
   done
-  if [ "$REMOTE_BUILD" = 1 ]; then step 5/6 "Image: the Fly remote builder rebuilds it from $STAGE_FINAL"; else step 5/6 "Pushing the image to Fly..."; fi
+  if [ "$REMOTE_BUILD" = 1 ]; then step 5/7 "Image: the Fly remote builder rebuilds it from $STAGE_FINAL"; else step 5/7 "Pushing the image to Fly..."; fi
 else
 # ---------------------------------------------------------------------------------------------------------------
-step 1/6 "Getting the source..."
+step 1/7 "Getting the source..."
 # Returns non-zero (never exits) so --source auto can fall back to the local checkout.
 get_scion_source() {
   [ -f "$FORGEVCS_SECRET_FILE" ] || { say "no ForgeVCS secret at $FORGEVCS_SECRET_FILE"; return 1; }
@@ -284,7 +288,7 @@ get_scion_source() {
   say "exporting $FORGEVCS_REPO@$FORGEVCS_REF from Scion (progress below; 15 min limit)..."
   # The export's progress lines are short and useful, so they stay on screen (and go to the log).
   trace_off   # the assignment below would be echoed by set -x with the token in it
-  EXPORT_JSON="$( { FORGEVCS_TOKEN="$TOKEN" FORGEVCS_BYPASS="$BYPASS" python3 "$ROOT_DIR/scripts/forge-export.py" \
+  EXPORT_JSON="$( { FORGEVCS_TOKEN="$TOKEN" python3 "$ROOT_DIR/scripts/forge-export.py" \
       --base "$FORGEVCS_BASE_URL" --repo "$FORGEVCS_REPO" --ref "$FORGEVCS_REF" --dest "$SRC" ${flags[@]+"${flags[@]}"} \
       </dev/null 2> >(tee -a "$LOG" | grep --line-buffered -v 'listing:' >&2); } )" \
     || { trace_on; say "the Scion export failed (details above and in the log)"; return 1; }
@@ -347,11 +351,11 @@ MISSING="$(awk '/^COPY / && $2 !~ /^--/ { for (i = 2; i < NF; i++) print $i }' "
 say "build-file check: every COPY source is present"
 
 # ---------------------------------------------------------------------------------------------------------------
-step 2/6 "Building the stylesheet..."
+step 2/7 "Building the stylesheet..."
 quiet "tailwindcss -> public/app.css" bash -c 'cd "$1" && "$2" -i web/ui/styles/app.css -o public/app.css --minify' _ "$SRC" "$TAILWIND" \
   || fail "the stylesheet build failed"
 
-step 3/6 "Compiling the application on this Mac (first run ~10 min, cached after)..."
+step 3/7 "Compiling the application on this Mac (first run ~10 min, cached after)..."
 quiet "docker build (Rust server + wasm UI, cross-compiled for x86_64)" \
   docker build --progress=plain -f "$SRC/devops/Dockerfile.build" --output "type=local,dest=$WORK/build" "$SRC" \
   || fail "the local compile failed (the cargo/docker error is shown above)"
@@ -359,7 +363,7 @@ quiet "docker build (Rust server + wasm UI, cross-compiled for x86_64)" \
 say "server binary $(du -h "$WORK/build/culebraluxe" | cut -f1), wasm $(du -h "$WORK/build/ui_bg.wasm" | cut -f1)"
 
 # ---------------------------------------------------------------------------------------------------------------
-step 4/6 "Packing the finished files..."
+step 4/7 "Packing the finished files..."
 # Identical to deploy-prod.sh step 3 (same exclusions, same mode normalization, same fail-closed private-data probe).
 # Built in a scratch dir, then synced into a STABLE stage dir. The stable path is what makes uploads small: BuildKit
 # keys its context cache by the context directory, and with the same path and unchanged mtimes it only sends files that
@@ -391,10 +395,10 @@ say "private-data probe: clean; stage $(du -sh "$STAGE" | cut -f1) at $STAGE ($C
 
 # ---------------------------------------------------------------------------------------------------------------
 if [ "$REMOTE_BUILD" = 1 ]; then
-  step 5/6 "Image: built by a Fly remote builder from the packed files (--remote-build; no docker push)"
+  step 5/7 "Image: built by a Fly remote builder from the packed files (--remote-build; no docker push)"
   [ "$DEPLOY" = 1 ] || fail "--remote-build needs the deploy step (do not combine with --no-deploy)"
 else
-step 5/6 "Building the runtime image and pushing it to Fly..."
+step 5/7 "Building the runtime image and pushing it to Fly..."
 # Fly machines are x86_64; the Mac is ARM, so the platform is explicit (the runtime stage only unpacks files).
 quiet "docker buildx (linux/amd64 runtime image $TAG)" \
   docker buildx build --progress=plain --platform linux/amd64 --load -t "$IMAGE_REPO:$TAG" "$STAGE" \
@@ -475,11 +479,11 @@ fi
 PREV_IMAGE="$(with_timeout 45 "$FLY" releases --app "$FLY_APP" --image </dev/null 2>/dev/null | awk '$3 == "complete" && $NF ~ /^registry\./ {print $NF; exit}' || true)"
 
 if [ "$DEPLOY" = 0 ]; then
-  skip_step 6/6 "Deploy (skipped: --no-deploy)"
+  skip_step 6/7 "Deploy (skipped: --no-deploy)"
   NEXT_HINT="scripts/deploy-fly.sh --resume $TAG"
   exit 0
 fi
-step 6/6 "Deploying to Fly and running the smoke test..."
+step 6/7 "Deploying to Fly and running the smoke test..."
 # BLUEGREEN, not rolling: there is exactly ONE standby machine, so a rolling update takes the only copy down for the
 # whole pull and boot — and leaves it down if the image crash-loops. Bluegreen starts the new machine, waits for its
 # /healthz, and only then removes the old one, so a bad release keeps the previous version serving.
@@ -598,6 +602,22 @@ if [ -x "$ROOT_DIR/scripts/smoke-site.sh" ]; then
     INTEG_FAILS="$(printf '%s\n' "$INTEG" | grep -c '^FAIL' || true)"
     [ "${INTEG_FAILS:-0}" = 0 ] || note "$INTEG_FAILS integration check(s) FAILED (listed under SMOKE TEST); the site itself is serving"
   fi
+fi
+
+# The standby takes the SAME image as the release that just passed, and only after it passed: a DR app carrying a
+# build that failed its smoke is worse than a DR app one release behind.
+if [ "$SMOKE_OK" = 1 ] && [ "$DEPLOY_DR" = 1 ]; then
+  step 7/7 "Updating the standby $FLY_DR_APP to this image (it stays asleep)..."
+  quiet "fly deploy --app $FLY_DR_APP (devops/fly.dr.toml, $FLY_DR_APP.fly.dev)" with_timeout 600 "$FLY" deploy \
+    --app "$FLY_DR_APP" --config "$ROOT_DIR/devops/fly.dr.toml" --image "$IMAGE_REPO:$TAG" \
+    --strategy bluegreen --wait-timeout 300 \
+    || fail "the standby did not take the image" "fly logs --app $FLY_DR_APP   ·   fly deploy --app $FLY_DR_APP --image $IMAGE_REPO:$TAG"
+  DR_SITE="https://${FLY_DR_APP}.fly.dev"
+  DR_CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "$DR_SITE/healthz" </dev/null || true)"
+  [ "$DR_CODE" = 200 ] || fail "the standby answers /healthz with ${DR_CODE:-nothing} (a suspended machine may need a moment to wake)" \
+    "fly logs --app $FLY_DR_APP"
+  SMOKE_LINES+=("PASS  standby $DR_SITE/healthz -> 200")
+  close_step OK
 fi
 
 if [ "$SMOKE_OK" = 1 ]; then

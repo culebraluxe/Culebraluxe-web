@@ -1,0 +1,45 @@
+# Fly.io DISASTER RECOVERY for CulebraLuxe — `culebraluxe-dr`, ONE machine in Chicago (ord) that sleeps when idle.
+#
+# The domain does not point here. culebraluxe.com and www.culebraluxe.com resolve to the PRODUCTION app's private
+# IPv6 (devops/fly.toml, `culebraluxe-prod` in iad). This app exists so a failure in Ashburn has somewhere to go:
+# `devops/FAILOVER.md` is the switch, and it is Claude + Lisa's action, not a deploy.
+#
+# Deployed by scripts/deploy-fly.sh, which releases to production first and then updates this machine to the same
+# image, so the standby is never a different build from the thing it stands in for.
+app = "culebraluxe-dr"
+primary_region = "ord"   # Chicago: far enough from iad to survive a regional failure, close enough to Neon (us-east-2).
+                          # A DR site in the same region as production is not a DR site.
+
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[env]
+  PORT = "8080"
+  CULEBRA_SITE_DIR = "/app/public"
+  FORMS_TEMPLATES_DIR = "/app/templates"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Asleep is the point: the standby costs nothing while production is healthy, and wakes on the first request.
+  # `suspend` keeps the boot memory image, so a wake is faster than a cold start.
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  [[http_service.checks]]
+    # A waking machine takes longer to answer than a running one; the check tolerates the boot.
+    grace_period = "60s"
+    interval = "30s"
+    timeout = "5s"
+    method = "GET"
+    path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

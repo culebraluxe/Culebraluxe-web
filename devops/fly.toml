@@ -1,6 +1,12 @@
-# Fly.io PRODUCTION for CulebraLuxe — deployed by scripts/deploy-fly.sh with a prebuilt image (`fly deploy --image`).
-# Fly never builds: there is deliberately no [build] section. See devops/DR-FLY.md.
-app = "culebraluxe-dr"
+# Fly.io PRODUCTION for CulebraLuxe — `culebraluxe-prod`, two machines in Ashburn (iad).
+#
+# culebraluxe.com and www.culebraluxe.com point at this app's private IPv6; only this app answers them. The DR
+# app (`culebraluxe-dr`, one sleeping machine in ord) is configured separately in `devops/fly.dr.toml`, and
+# `devops/FAILOVER.md` is the switch.
+#
+# Deployed by scripts/deploy-fly.sh with a prebuilt image (`fly deploy --image`). Fly never builds: there is
+# deliberately no [build] section.
+app = "culebraluxe-prod"
 primary_region = "iad"   # Ashburn (AWS us-east-1). Match the Neon region in DATABASE_URL: us-east-1/us-east-2 -> iad, us-west-2 -> sea, eu-central-1 -> fra.
 
 kill_signal = "SIGTERM"
@@ -14,9 +20,9 @@ kill_timeout = "30s"
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "off"     # always on: a DR site that sleeps is not a DR site
+  auto_stop_machines = "off"     # production never sleeps
   auto_start_machines = true
-  min_machines_running = 1       # raise to 2 with `fly scale count 2` for redundancy (Lisa)
+  min_machines_running = 2       # both iad machines stay up; one machine would be a single point of failure
 
   [http_service.concurrency]
     type = "requests"
