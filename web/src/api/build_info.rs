@@ -133,13 +133,14 @@ pub fn resolve_stamp(candidates: &[(&str, Option<String>)]) -> Stamp {
     }
 }
 
-/// The Scion changeset this image was built from: lowercase hex, `MIN_SHA`..=64 digits, else empty.
+/// The Scion changeset this image was built from: lowercase hex, `MIN_SHA`..=66 digits, else empty.
 ///
-/// A changeset id is a 64-digit digest, so the commit-sha ceiling does not apply. Anything that is not hex is not a
-/// changeset and is dropped rather than reported.
+/// A changeset id is a 33-byte object id rendered as hex — **66 digits**, not 64 (the ref table stores
+/// `01 03 || digest`, and a real one is `c1113e85…5b9fb1`). The commit-sha ceiling does not apply; anything that is
+/// not hex is not a changeset and is dropped rather than reported.
 pub fn as_changeset(value: &str) -> String {
     let hex =
-        value.len() >= MIN_SHA && value.len() <= 64 && value.chars().all(|c| c.is_ascii_hexdigit());
+        value.len() >= MIN_SHA && value.len() <= 66 && value.chars().all(|c| c.is_ascii_hexdigit());
     hex.then(|| value.to_ascii_lowercase()).unwrap_or_default()
 }
 
@@ -295,7 +296,7 @@ mod tests {
     }
 
     #[test]
-    fn a_changeset_must_be_hex_and_the_ceiling_is_sixty_four() {
+    fn a_changeset_is_hex_and_at_most_sixty_six() {
         assert_eq!(as_changeset("c104f0a"), "c104f0a");
         assert_eq!(
             as_changeset("  C104F0A  "),
@@ -303,11 +304,16 @@ mod tests {
             "trimming happens before this"
         );
         assert_eq!(as_changeset("not-hex"), "");
-        assert_eq!(as_changeset(&"a".repeat(64)).len(), 64);
+        // A REAL Scion id: a 33-byte object id is 66 hex digits. This is the width that matters — a 64-digit
+        // ceiling reported an empty changeset for every Scion deploy, which is how this test came to exist.
+        let real = "c1113e859cec5183b5ff000282cc44b0c83511c339b8276c5417abac99305b9fb1";
+        assert_eq!(real.len(), 66);
+        assert_eq!(as_changeset(real), real);
+        assert_eq!(as_changeset(&"a".repeat(66)).len(), 66);
         assert_eq!(
-            as_changeset(&"a".repeat(65)),
+            as_changeset(&"a".repeat(67)),
             "",
-            "65 digits is not a changeset"
+            "67 digits is not a changeset"
         );
     }
 
