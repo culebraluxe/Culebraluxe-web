@@ -1,7 +1,7 @@
 //! Isolated, disposable database support that refuses the PRODUCTION target.
 //!
-//! THE REFUSAL IS THE POINT. `Database::connect_from_env()` deliberately resolves PROD from `VERCEL_ENV` /
-//! `APP_ENV` and connects with no confirmation step (see `db::pool::resolve_declared_target`). A test harness that
+//! THE REFUSAL IS THE POINT. `Database::connect_from_env()` deliberately resolves PROD from `APP_ENV` and
+//! connects with no confirmation step (see `db::pool::resolve_declared_target`). A test harness that
 //! called it directly could therefore open a production connection from a stray environment variable. This module
 //! resolves the declared target itself, refuses [`DbTarget::Prod`] *before any socket is opened*, and only then
 //! connects. The refusal is a pure function ([`guard_target`]), which is what lets the self-tests prove it without a
@@ -76,13 +76,10 @@ pub fn guard_target(target: DbTarget) -> Result<(), HarnessDbError> {
 
 /// Resolve the declared environment and refuse anything that resolves to PRODUCTION.
 ///
-/// `VERCEL_ENV` wins over `APP_ENV`, exactly as production resolution does (`db::pool::resolve_declared_target`), so
-/// the harness cannot be tricked into DEV by setting one variable while the other says production.
-pub fn resolve_test_target(
-    vercel_env: Option<&str>,
-    app_env: Option<&str>,
-) -> Result<DbTarget, HarnessDbError> {
-    let target = resolve_declared_target(vercel_env, app_env)
+/// It reads `APP_ENV` and nothing else, exactly as production resolution does (`db::pool::resolve_declared_target`),
+/// so the harness can only be pointed at DEV by a declaration that says so.
+pub fn resolve_test_target(app_env: Option<&str>) -> Result<DbTarget, HarnessDbError> {
+    let target = resolve_declared_target(app_env)
         .map_err(|failure| HarnessDbError::Undeclared(failure.to_string()))?;
     guard_target(target)?;
     Ok(target)
@@ -107,17 +104,13 @@ impl TestDatabase {
     ///
     /// Unlike `Database::connect_from_env`, this never connects when the declared target is production.
     pub async fn connect_from_env() -> Result<Self, HarnessDbError> {
-        let vercel_env = std::env::var("VERCEL_ENV").ok();
         let app_env = std::env::var("APP_ENV").ok();
-        Self::connect_declared(vercel_env.as_deref(), app_env.as_deref()).await
+        Self::connect_declared(app_env.as_deref()).await
     }
 
     /// Like [`TestDatabase::connect_from_env`], but with the declaration supplied by the caller.
-    pub async fn connect_declared(
-        vercel_env: Option<&str>,
-        app_env: Option<&str>,
-    ) -> Result<Self, HarnessDbError> {
-        let target = resolve_test_target(vercel_env, app_env)?;
+    pub async fn connect_declared(app_env: Option<&str>) -> Result<Self, HarnessDbError> {
+        let target = resolve_test_target(app_env)?;
         let inner = Database::connect_target(target).await?;
         Self::from_database(inner)
     }
@@ -260,32 +253,22 @@ mod tests {
     }
 
     #[test]
-    fn a_declared_production_environment_is_refused_even_when_the_other_variable_says_dev() {
-        // VERCEL_ENV wins, exactly as production resolution does: this is still PROD.
-        assert!(resolve_test_target(Some("production"), Some("dev")).is_err());
-        assert!(resolve_test_target(None, Some("production")).is_err());
-        assert!(resolve_test_target(None, Some("prod")).is_err());
+    fn a_declared_production_environment_is_refused() {
+        assert!(resolve_test_target(Some("production")).is_err());
+        assert!(resolve_test_target(Some("prod")).is_err());
+        // A Vercel environment name is not a declaration any more (W2.1): it is refused rather than guessed at.
+        assert!(resolve_test_target(Some("preview")).is_err());
     }
 
     #[test]
     fn a_dev_or_test_environment_resolves_to_dev() {
-        assert_eq!(
-            resolve_test_target(Some("preview"), Some("prod")).unwrap(),
-            DbTarget::Dev
-        );
-        assert_eq!(
-            resolve_test_target(None, Some("test")).unwrap(),
-            DbTarget::Dev
-        );
-        assert_eq!(
-            resolve_test_target(None, Some("dev")).unwrap(),
-            DbTarget::Dev
-        );
+        assert_eq!(resolve_test_target(Some("test")).unwrap(), DbTarget::Dev);
+        assert_eq!(resolve_test_target(Some("dev")).unwrap(), DbTarget::Dev);
     }
 
     #[test]
     fn silence_is_refused_rather_than_defaulted_to_a_database() {
-        assert!(resolve_test_target(None, None).is_err());
+        assert!(resolve_test_target(None).is_err());
     }
 
     #[test]

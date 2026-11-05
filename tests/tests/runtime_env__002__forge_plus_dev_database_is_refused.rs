@@ -37,10 +37,10 @@ fn runtime_env_002__forge_plus_dev_database_is_refused() {
     // ---- LAYER 1: resolve_forge_target refuses DEV declarations ----
     // APP_ENV=development
     assert!(
-        resolve_forge_target(None, Some("development")).is_err(),
+        resolve_forge_target(Some("development")).is_err(),
         "{api}: APP_ENV=development must be refused by resolve_forge_target"
     );
-    let err = resolve_forge_target(None, Some("development")).unwrap_err();
+    let err = resolve_forge_target(Some("development")).unwrap_err();
     assert!(
         err.to_string().contains("PRODUCTION only"),
         "{api}: refusal must name PRODUCTION only rule, got: {err}"
@@ -48,25 +48,25 @@ fn runtime_env_002__forge_plus_dev_database_is_refused() {
 
     // APP_ENV=dev
     assert!(
-        resolve_forge_target(None, Some("dev")).is_err(),
+        resolve_forge_target(Some("dev")).is_err(),
         "{api}: APP_ENV=dev must be refused by resolve_forge_target"
     );
 
     // VERCEL_ENV=preview (wins over APP_ENV)
     assert!(
-        resolve_forge_target(Some("preview"), Some("production")).is_err(),
+        resolve_forge_target(Some("preview")).is_err(),
         "{api}: VERCEL_ENV=preview must be refused even with APP_ENV=production"
     );
 
     // VERCEL_ENV=development
     assert!(
-        resolve_forge_target(Some("development"), Some("production")).is_err(),
+        resolve_forge_target(Some("development")).is_err(),
         "{api}: VERCEL_ENV=development must be refused even with APP_ENV=production"
     );
 
     // Silence is refused (by resolve_declared_target)
     assert!(
-        resolve_forge_target(None, None).is_err(),
+        resolve_forge_target(None).is_err(),
         "{api}: silence must be refused"
     );
 
@@ -131,7 +131,7 @@ fn runtime_env_002__forge_plus_dev_database_is_refused() {
     env.set("DATABASE_URL_DEV", "postgres://dev.invalid/culebraluxe");
 
     assert!(
-        resolve_forge_target(None, Some("development")).is_err(),
+        resolve_forge_target(Some("development")).is_err(),
         "{api}: DEV declaration refused even with DATABASE_URL_DEV set"
     );
 
@@ -142,7 +142,7 @@ fn runtime_env_002__forge_plus_dev_database_is_refused() {
     env.set("DATABASE_URL_DEV", "postgres://dev.invalid/culebraluxe");
 
     assert!(
-        resolve_forge_target(Some("preview"), Some("production")).is_err(),
+        resolve_forge_target(Some("preview")).is_err(),
         "{api}: VERCEL_ENV=preview refused even with APP_ENV=production and DATABASE_URL_DEV"
     );
 }

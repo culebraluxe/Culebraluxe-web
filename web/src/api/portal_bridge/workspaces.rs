@@ -294,9 +294,7 @@ pub(super) fn environment_readiness() -> Value {
             .map(|v| v.trim().to_owned())
             .filter(|v| !v.is_empty())
     };
-    let production = ["APP_ENV", "VERCEL_ENV"]
-        .iter()
-        .any(|key| value(key).is_some_and(|v| v.eq_ignore_ascii_case("production")));
+    let production = crate::api::ui_auth::production();
     let (prod_db, dev_db) = (value("DATABASE_URL_PROD"), value("DATABASE_URL_DEV"));
     let database = if production {
         prod_db.is_some()

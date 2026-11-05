@@ -45,7 +45,7 @@ async fn connect_isolated() -> ServiceHarness {
         Arc::new(services::CapturingAuditPort::default()),
         Arc::new(services::CapturingDomainEventPort::default()),
     );
-    let db = test_harness::database::TestDatabase::connect_declared(Some("dev"), Some("dev"))
+    let db = test_harness::database::TestDatabase::connect_declared(Some("dev"))
         .await
         .expect("test database must connect to DEV");
     ServiceHarness::isolated(db.database().clone(), infrastructure)

@@ -32,7 +32,7 @@ use test_harness::database::{HarnessDbError, TestDatabase};
 const HARNESS: &str = "SignatureService/L2 Persistence";
 
 async fn connect_dev() -> Result<(TestDatabase, SignatureService<SignatureDao>), HarnessDbError> {
-    let database = TestDatabase::connect_declared(Some("dev"), Some("dev")).await?;
+    let database = TestDatabase::connect_declared(Some("dev")).await?;
     let dao = SignatureDao::new(database.database().clone());
     let infrastructure = ServiceInfrastructure::new(
         Arc::new(DefaultAuthorizationPort),

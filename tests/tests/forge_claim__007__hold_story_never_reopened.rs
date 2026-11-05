@@ -31,7 +31,7 @@ async fn story_status(pool: &sqlx::PgPool, story_id: &str) -> String {
 #[ignore = "needs DATABASE_URL_DEV: runs only against the disposable DEV branch (PROD is refused)"]
 #[allow(non_snake_case)] // the canonical taxonomy name is the contract, double underscores and all
 async fn forge_claim_007__hold_story_never_reopened() {
-    let harness = ForgeHarness::connect_declared(None, Some("test"))
+    let harness = ForgeHarness::connect_declared(Some("test"))
         .await
         .expect(
             "DATABASE_URL_DEV must point at a disposable DEV database; the harness refuses PROD before connecting",

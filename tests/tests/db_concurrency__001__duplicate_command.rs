@@ -53,7 +53,7 @@ const DELIVERIES: usize = 8;
 async fn connect_dev() -> RaceHarness {
     let mut last: Option<String> = None;
     for attempt in 1..=4 {
-        match RaceHarness::connect_declared(Some("dev"), Some("dev")).await {
+        match RaceHarness::connect_declared(Some("dev")).await {
             Ok(harness) => return harness,
             Err(error) => {
                 eprintln!("proof: DEV connect attempt {attempt} failed: {error}");

@@ -64,11 +64,8 @@ impl RaceHarness {
     }
 
     /// Like [`connect_from_env`](Self::connect_from_env), with the environment declaration supplied by the caller.
-    pub async fn connect_declared(
-        vercel_env: Option<&str>,
-        app_env: Option<&str>,
-    ) -> Result<Self, HarnessDbError> {
-        let database = TestDatabase::connect_declared(vercel_env, app_env).await?;
+    pub async fn connect_declared(app_env: Option<&str>) -> Result<Self, HarnessDbError> {
+        let database = TestDatabase::connect_declared(app_env).await?;
         Ok(Self::wrap(database))
     }
 

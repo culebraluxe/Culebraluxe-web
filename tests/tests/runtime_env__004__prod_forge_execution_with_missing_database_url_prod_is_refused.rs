@@ -46,12 +46,11 @@ fn runtime_env_004__prod_forge_execution_with_missing_database_url_prod_is_refus
     // (1) The Forge execution-target policy, pure and read from its arguments: PROD is a valid Forge target, and a
     //     declaration that resolves to DEV is refused. This is the precondition that makes the rest a *Forge* run.
     assert_eq!(
-        resolve_forge_target(Some("production"), None)
-            .expect("PROD is a valid Forge execution target"),
+        resolve_forge_target(Some("production")).expect("PROD is a valid Forge execution target"),
         DbTarget::Prod,
     );
     assert!(
-        resolve_forge_target(Some("preview"), Some("development")).is_err(),
+        resolve_forge_target(Some("preview")).is_err(),
         "Forge execution must be refused off PROD, not silently run on DEV",
     );
 

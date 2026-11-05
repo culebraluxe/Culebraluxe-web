@@ -28,9 +28,7 @@ pub async fn db_metrics(
         .await
         .map_err(ApiError::from)?;
 
-    let declared_by = if std::env::var("VERCEL_ENV").ok().as_deref().is_some() {
-        Some("VERCEL_ENV")
-    } else if std::env::var("APP_ENV").ok().as_deref().is_some() {
+    let declared_by = if std::env::var("APP_ENV").ok().as_deref().is_some() {
         Some("APP_ENV")
     } else {
         None
@@ -67,7 +65,6 @@ pub async fn db_metrics(
         "target": target,
         "db": {
             "target": target,
-            "vercelEnv": std::env::var("VERCEL_ENV").ok(),
             "appEnv": std::env::var("APP_ENV").ok(),
             "declaredBy": declared_by,
             "undeclaredReason": serde_json::Value::Null,

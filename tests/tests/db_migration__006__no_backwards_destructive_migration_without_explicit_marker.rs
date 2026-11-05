@@ -136,7 +136,10 @@ const JUSTIFIED_DESTRUCTIVE: &[(&str, &str)] = &[
     // file_data rows remained; BoldSign provider tables are dormant after the provider was removed.
     ("300_drop_media_chunk_staging.sql", "transient staging"),
     ("301_drop_media_file_data.sql", "zero file_data rows"),
-    ("302_drop_boldsign_provider_tables.sql", "dormant retired provider tables"),
+    (
+        "302_drop_boldsign_provider_tables.sql",
+        "dormant retired provider tables",
+    ),
 ];
 
 /// Connect to the disposable DEV branch, tolerating a cold-pool timeout under concurrent test load.
@@ -145,7 +148,7 @@ const JUSTIFIED_DESTRUCTIVE: &[(&str, &str)] = &[
 async fn connect_dev() -> TestDatabase {
     let mut last: Option<String> = None;
     for attempt in 1..=4 {
-        match TestDatabase::connect_declared(Some("dev"), Some("dev")).await {
+        match TestDatabase::connect_declared(Some("dev")).await {
             Ok(harness) => return harness,
             Err(error) => {
                 eprintln!("proof: DEV connect attempt {attempt} failed: {error}");

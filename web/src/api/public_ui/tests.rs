@@ -5,12 +5,7 @@
 use super::select_maps_key;
 
 fn clear() {
-    for key in [
-        "APP_ENV",
-        "VERCEL_ENV",
-        "GOOGLE_MAPS_API_KEY",
-        "GOOGLE_MAPS_DEMO_KEY",
-    ] {
+    for key in ["APP_ENV", "GOOGLE_MAPS_API_KEY", "GOOGLE_MAPS_DEMO_KEY"] {
         std::env::remove_var(key);
     }
 }

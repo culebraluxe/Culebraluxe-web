@@ -32,7 +32,7 @@ const HARNESS: &str = "DatabaseHarness/L2 Persistence";
 async fn connect_dev() -> TestDatabase {
     let mut last: Option<String> = None;
     for attempt in 1..=4 {
-        match TestDatabase::connect_declared(Some("dev"), Some("dev")).await {
+        match TestDatabase::connect_declared(Some("dev")).await {
             Ok(harness) => return harness,
             Err(error) => {
                 eprintln!("proof: DEV connect attempt {attempt} failed: {error}");

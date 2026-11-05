@@ -25,7 +25,7 @@ use test_harness::database::{HarnessDbError, TestDatabase};
 const HARNESS: &str = "SignatureDao/L2 Persistence";
 
 async fn connect_dev() -> Result<(TestDatabase, SignatureDao), HarnessDbError> {
-    let database = TestDatabase::connect_declared(Some("dev"), Some("dev")).await?;
+    let database = TestDatabase::connect_declared(Some("dev")).await?;
     let dao = SignatureDao::new(database.database().clone());
     Ok((database, dao))
 }

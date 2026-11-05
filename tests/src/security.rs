@@ -102,11 +102,8 @@ impl SecurityHarness {
     }
 
     /// Explicit-target form used by environment-guard contract tests.
-    pub async fn connect_declared(
-        vercel_env: Option<&str>,
-        app_env: Option<&str>,
-    ) -> Result<Self, HarnessDbError> {
-        let database = TestDatabase::connect_declared(vercel_env, app_env).await?;
+    pub async fn connect_declared(app_env: Option<&str>) -> Result<Self, HarnessDbError> {
+        let database = TestDatabase::connect_declared(app_env).await?;
         Ok(Self::with_database(database))
     }
 

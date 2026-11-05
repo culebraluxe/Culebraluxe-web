@@ -64,24 +64,21 @@ fn the_production_database_guard_refuses_execution() {
     let refusal = guard_target(DbTarget::Prod).expect_err("PROD must be refused");
     assert!(matches!(refusal, HarnessDbError::ProductionRefused(_)));
 
-    // 2. The declaration the guard sits on: a production environment is refused, whichever variable says so.
-    assert!(resolve_test_target(Some("production"), Some("dev")).is_err());
-    assert!(resolve_test_target(None, Some("production")).is_err());
-    assert!(resolve_test_target(None, Some("prod")).is_err());
+    // 2. The declaration the guard sits on: a production environment is refused.
+    assert!(resolve_test_target(Some("production")).is_err());
+    assert!(resolve_test_target(Some("prod")).is_err());
     assert!(
-        resolve_test_target(None, None).is_err(),
+        resolve_test_target(None).is_err(),
         "silence is refused, not defaulted"
+    );
+    assert!(
+        resolve_test_target(Some("preview")).is_err(),
+        "a Vercel environment name is not a declaration any more"
     );
 
     // 3. And a dev/test declaration resolves to DEV, so the guard is not simply refusing everything.
-    assert_eq!(
-        resolve_test_target(None, Some("test")).unwrap(),
-        DbTarget::Dev
-    );
-    assert_eq!(
-        resolve_test_target(Some("preview"), None).unwrap(),
-        DbTarget::Dev
-    );
+    assert_eq!(resolve_test_target(Some("test")).unwrap(), DbTarget::Dev);
+    assert_eq!(resolve_test_target(Some("dev")).unwrap(), DbTarget::Dev);
 }
 
 /// The guard's real entry point, not just its pure resolver.
@@ -95,19 +92,19 @@ async fn the_database_constructor_refuses_to_execute_against_production() {
     // A production declaration is refused before any socket is opened.
     assert!(
         matches!(
-            TestDatabase::connect_declared(Some("production"), Some("dev")).await,
+            TestDatabase::connect_declared(Some("production")).await,
             Err(HarnessDbError::ProductionRefused(_))
         ),
         "a production declaration must resolve to the PRODUCTION refusal before connecting"
     );
     assert!(matches!(
-        TestDatabase::connect_declared(None, Some("prod")).await,
+        TestDatabase::connect_declared(Some("prod")).await,
         Err(HarnessDbError::ProductionRefused(_))
     ));
 
     // Silence is refused as undeclared, not defaulted to a database.
     assert!(matches!(
-        TestDatabase::connect_declared(None, None).await,
+        TestDatabase::connect_declared(None).await,
         Err(HarnessDbError::Undeclared(_))
     ));
 }

@@ -23,10 +23,10 @@ pub const SESSION_COOKIE: &str = "culebra_session";
 /// How long a sign-in lasts.
 pub const SESSION_SECONDS: i64 = 7 * 24 * 60 * 60;
 
+/// Whether this process was told it is production. `APP_ENV` is the only declaration: the Vercel variable is
+/// retired with the Vercel deploy path, and two names for one fact let a stale one win.
 pub fn production() -> bool {
-    ["APP_ENV", "VERCEL_ENV"]
-        .iter()
-        .any(|key| std::env::var(key).is_ok_and(|value| value.eq_ignore_ascii_case("production")))
+    std::env::var("APP_ENV").is_ok_and(|value| value.eq_ignore_ascii_case("production"))
 }
 
 /// The development stub: on when asked for, never in production.
@@ -178,7 +178,6 @@ mod tests {
         // One test owns these variables so parallel tests cannot interleave them.
         std::env::set_var("AUTH_SECRET", "test-secret-that-is-long-enough");
         std::env::set_var("CULEBRA_UI_AUTH_STUB", "root");
-        std::env::remove_var("VERCEL_ENV");
         std::env::set_var("APP_ENV", "development");
         assert!(
             stub_enabled() && portal_open(&HeaderMap::new()),

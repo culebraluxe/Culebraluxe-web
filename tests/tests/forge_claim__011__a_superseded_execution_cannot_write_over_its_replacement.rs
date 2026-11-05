@@ -69,7 +69,7 @@ async fn heartbeat_at(pool: &sqlx::PgPool, item_id: &str) -> Option<String> {
 #[ignore = "needs DATABASE_URL_DEV: runs only against the disposable DEV branch (PROD is refused)"]
 #[allow(non_snake_case)] // the canonical taxonomy name is the contract, double underscores and all
 async fn forge_claim_011__a_superseded_execution_cannot_write_over_its_replacement() {
-    let harness = ForgeHarness::connect_declared(None, Some("test"))
+    let harness = ForgeHarness::connect_declared(Some("test"))
         .await
         .expect(
             "DATABASE_URL_DEV must point at a disposable DEV database; the harness refuses PROD before connecting",
@@ -225,7 +225,7 @@ async fn forge_claim_011__a_superseded_execution_cannot_write_over_its_replaceme
 #[ignore = "needs DATABASE_URL_DEV: runs only against the disposable DEV branch (PROD is refused)"]
 #[allow(non_snake_case)] // the canonical taxonomy name is the contract, double underscores and all
 async fn forge_claim_011__reusing_a_worker_name_does_not_reuse_authority() {
-    let harness = ForgeHarness::connect_declared(None, Some("test"))
+    let harness = ForgeHarness::connect_declared(Some("test"))
         .await
         .expect("DATABASE_URL_DEV must point at a disposable DEV database");
     let pool = harness.pool();

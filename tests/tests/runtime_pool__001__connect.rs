@@ -226,30 +226,24 @@ fn runtime_pool_001__connect() {
     // ---- RESOLUTION FUNCTIONS: Verify they work correctly ----
     // resolve_declared_target
     assert_eq!(
-        resolve_declared_target(Some("production"), Some("dev")).unwrap(),
+        resolve_declared_target(Some("production")).unwrap(),
         DbTarget::Prod
     );
     assert_eq!(
-        resolve_declared_target(Some("preview"), Some("prod")).unwrap(),
-        DbTarget::Dev
+        resolve_declared_target(Some("prod")).unwrap(),
+        DbTarget::Prod
     );
-    assert!(resolve_declared_target(None, None).is_err());
+    assert_eq!(resolve_declared_target(Some("dev")).unwrap(), DbTarget::Dev);
+    // A Vercel environment name is not a declaration any more (W2.1).
+    assert!(resolve_declared_target(Some("preview")).is_err());
+    assert!(resolve_declared_target(None).is_err());
 
     // resolve_forge_target
     assert_eq!(
-        resolve_forge_target(None, Some("production")).unwrap(),
+        resolve_forge_target(Some("production")).unwrap(),
         DbTarget::Prod
     );
-    assert_eq!(
-        resolve_forge_target(Some("production"), None).unwrap(),
-        DbTarget::Prod
-    );
-    assert_eq!(
-        resolve_forge_target(Some("production"), Some("prod")).unwrap(),
-        DbTarget::Prod
-    );
-    assert!(resolve_forge_target(None, Some("development")).is_err());
-    assert!(resolve_forge_target(None, Some("dev")).is_err());
-    assert!(resolve_forge_target(Some("preview"), Some("prod")).is_err());
-    assert!(resolve_forge_target(None, None).is_err());
+    assert!(resolve_forge_target(Some("development")).is_err());
+    assert!(resolve_forge_target(Some("dev")).is_err());
+    assert!(resolve_forge_target(None).is_err());
 }

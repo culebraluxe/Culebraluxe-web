@@ -54,7 +54,7 @@ fn runtime_env_003__forge_plus_memory_store_without_explicit_forge_store_memory_
 
     // resolve_forge_target still allows PROD
     assert_eq!(
-        resolve_forge_target(None, Some("production")).unwrap(),
+        resolve_forge_target(Some("production")).unwrap(),
         DbTarget::Prod
     );
 

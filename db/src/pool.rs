@@ -70,10 +70,7 @@ pub struct Database {
 
 impl Database {
     pub async fn connect_from_env() -> DbResult<Self> {
-        let target = resolve_declared_target(
-            env::var("VERCEL_ENV").ok().as_deref(),
-            env::var("APP_ENV").ok().as_deref(),
-        )?;
+        let target = resolve_declared_target(env::var("APP_ENV").ok().as_deref())?;
         Self::connect_target(target).await
     }
 
@@ -82,13 +79,10 @@ impl Database {
     /// The stories, the cockpit and the flight recorder live in the production database. It is the golden source,
     /// so a Forge process on any other target reads and writes a control plane nobody is working in and its
     /// verdicts are about rows nobody makes decisions from. `resolve_declared_target` still owns the declaration
-    /// (`APP_ENV` / `VERCEL_ENV`) and still refuses silence; this adds Forge's ceiling on top of it, so a caller
+    /// (`APP_ENV`) and still refuses silence; this adds Forge's ceiling on top of it, so a caller
     /// cannot flip the environment by exporting one variable.
     pub async fn connect_forge_from_env() -> DbResult<Self> {
-        let target = resolve_forge_target(
-            env::var("VERCEL_ENV").ok().as_deref(),
-            env::var("APP_ENV").ok().as_deref(),
-        )?;
+        let target = resolve_forge_target(env::var("APP_ENV").ok().as_deref())?;
         Self::connect_target(target).await
     }
 
@@ -579,27 +573,18 @@ fn cell_as_text(row: &sqlx::postgres::PgRow, i: usize) -> String {
     String::new()
 }
 
-pub fn resolve_declared_target(
-    vercel_env: Option<&str>,
-    app_env: Option<&str>,
-) -> DbResult<DbTarget> {
-    match vercel_env
-        .unwrap_or_default()
-        .trim()
-        .to_lowercase()
-        .as_str()
-    {
-        "production" => return Ok(DbTarget::Prod),
-        "preview" | "development" => return Ok(DbTarget::Dev),
-        _ => {}
-    }
-
+/// The database target this process declared, from `APP_ENV` and nothing else.
+///
+/// `APP_ENV` is the only declaration. It used to read `VERCEL_ENV` first, when the site was deployed by Vercel and
+/// that variable was set for it; the Vercel deploy path is retired (W2.1), and two names for one fact let a stale
+/// one win — the exact shape this repository refuses. Silence is still refused rather than defaulted.
+pub fn resolve_declared_target(app_env: Option<&str>) -> DbResult<DbTarget> {
     match app_env.unwrap_or_default().trim().to_lowercase().as_str() {
         "production" | "prod" => Ok(DbTarget::Prod),
         "development" | "dev" | "test" | "testing" => Ok(DbTarget::Dev),
         _ => Err(DbFailure::configuration(
             "db.resolve_target",
-            "database target is undeclared; set APP_ENV or use VERCEL_ENV",
+            "database target is undeclared; set APP_ENV",
         )),
     }
 }
@@ -611,12 +596,12 @@ pub fn resolve_declared_target(
 /// working in, and the report is trusted because it is the only number on the screen (2026-09-16: a department
 /// reading the wrong database produced verdicts nobody could trust).
 ///
-/// `resolve_declared_target` owns the declaration: it reads `APP_ENV` / `VERCEL_ENV` and refuses silence.
+/// `resolve_declared_target` owns the declaration: it reads `APP_ENV` and refuses silence.
 /// This function owns Forge's ceiling on top of that declaration, so no caller — a wrapper script, a stale
 /// `.env`, a hand-typed `cargo run` — can flip a Forge process to another environment by exporting one variable.
 /// A refusal is a `DbFailure::configuration`, which is captured like every other database failure.
-pub fn resolve_forge_target(vercel_env: Option<&str>, app_env: Option<&str>) -> DbResult<DbTarget> {
-    let declared = resolve_declared_target(vercel_env, app_env)?;
+pub fn resolve_forge_target(app_env: Option<&str>) -> DbResult<DbTarget> {
+    let declared = resolve_declared_target(app_env)?;
     if declared != DbTarget::Prod {
         return Err(DbFailure::configuration(
             "db.resolve_forge_target",
@@ -819,20 +804,23 @@ mod tests {
     static WINDOW_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
-    fn vercel_environment_wins() {
+    fn app_environment_declares_the_target() {
         assert_eq!(
-            resolve_declared_target(Some("production"), Some("dev")).unwrap(),
+            resolve_declared_target(Some("production")).unwrap(),
             DbTarget::Prod
         );
         assert_eq!(
-            resolve_declared_target(Some("preview"), Some("prod")).unwrap(),
-            DbTarget::Dev
+            resolve_declared_target(Some("prod")).unwrap(),
+            DbTarget::Prod
         );
+        assert_eq!(resolve_declared_target(Some("dev")).unwrap(), DbTarget::Dev);
+        // A Vercel environment name is not a declaration any more; the only way to say it is APP_ENV.
+        assert!(resolve_declared_target(None).is_err());
     }
 
     #[test]
     fn silence_is_refused() {
-        assert!(resolve_declared_target(None, None).is_err());
+        assert!(resolve_declared_target(None).is_err());
     }
 
     /// The rule this guards (AGENTS.md, "Never run Forge against DEV"): Forge's database is production, and a
@@ -841,25 +829,15 @@ mod tests {
     #[test]
     fn forge_refuses_everything_but_production() {
         assert_eq!(
-            resolve_forge_target(None, Some("production")).unwrap(),
+            resolve_forge_target(Some("production")).unwrap(),
             DbTarget::Prod
         );
-        assert_eq!(
-            resolve_forge_target(Some("production"), None).unwrap(),
-            DbTarget::Prod
-        );
-        assert_eq!(
-            resolve_forge_target(Some("production"), Some("prod")).unwrap(),
-            DbTarget::Prod
-        );
-        assert!(resolve_forge_target(None, Some("development")).is_err());
-        assert!(resolve_forge_target(None, Some("dev")).is_err());
-        assert!(resolve_forge_target(Some("preview"), Some("prod")).is_err());
-        assert!(resolve_forge_target(None, None).is_err());
+        assert_eq!(resolve_forge_target(Some("prod")).unwrap(), DbTarget::Prod);
+        assert!(resolve_forge_target(Some("development")).is_err());
+        assert!(resolve_forge_target(Some("dev")).is_err());
+        assert!(resolve_forge_target(None).is_err());
 
-        let message = resolve_forge_target(None, Some("dev"))
-            .unwrap_err()
-            .to_string();
+        let message = resolve_forge_target(Some("dev")).unwrap_err().to_string();
         assert!(
             message.contains("PRODUCTION only"),
             "the refusal must name the rule it enforces: {message}"

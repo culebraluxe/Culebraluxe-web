@@ -115,7 +115,7 @@ fn start_params() -> StartProcessParams {
 
 fn connect_dev_store() -> Result<NeonStore, HarnessDbError> {
     let rt = tokio::runtime::Runtime::new().expect("runtime");
-    let db = rt.block_on(TestDatabase::connect_declared(Some("dev"), Some("dev")))?;
+    let db = rt.block_on(TestDatabase::connect_declared(Some("dev")))?;
     let store = NeonStore::from_pool(db.database().pool().clone());
     Ok(store)
 }
@@ -147,7 +147,7 @@ fn wf_trace_004__task_claimed() -> Result<(), HarnessDbError> {
     let instance_id = started.process_instance_id.clone();
     let root_token_id = started.root_token_id.clone();
 
-    let db = rt.block_on(TestDatabase::connect_declared(Some("dev"), Some("dev")))?;
+    let db = rt.block_on(TestDatabase::connect_declared(Some("dev")))?;
     let assert_store = NeonStore::from_pool(db.database().pool().clone());
 
     // Get the task that was created.

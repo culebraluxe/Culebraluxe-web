@@ -42,7 +42,7 @@ async fn run_count(pool: &sqlx::PgPool, story_id: &str) -> i64 {
 #[allow(non_snake_case)] // the canonical taxonomy name is the contract, double underscores and all
 async fn forge_claim_010__agent_work_ownership_follows_ready_claimed_running_with_no_skipped_or_duplicate_transition(
 ) {
-    let harness = ForgeHarness::connect_declared(None, Some("test"))
+    let harness = ForgeHarness::connect_declared(Some("test"))
         .await
         .expect(
             "DATABASE_URL_DEV must point at a disposable DEV database; the harness refuses PROD before connecting",

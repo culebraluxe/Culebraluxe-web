@@ -50,9 +50,7 @@ fn select_maps_key() -> Option<String> {
             .map(|v| v.trim().to_owned())
             .filter(|v| !v.is_empty())
     };
-    let production = ["APP_ENV", "VERCEL_ENV"]
-        .iter()
-        .any(|key| value(key).is_some_and(|v| v.eq_ignore_ascii_case("production")));
+    let production = crate::api::ui_auth::production();
     if production {
         value("GOOGLE_MAPS_API_KEY")
     } else {
@@ -735,22 +733,24 @@ fn property_detail(
     let videos: Vec<Value> = media
         .iter()
         .filter(|m| kind(m) == "video" && text(m, "muxPlaybackId").is_some())
-        .map(|m| json!({
-            "id": at(m, "id"),
-            "playbackId": at(m, "muxPlaybackId"),
-            "role": if text(m, "role") == Some("short") { "short" } else { "video" },
-            // A film Mux holds was never uploaded under a filename: `attach_property_video` stores
-            // `mux-<asset id>` in that column (db/src/media/media_row.rs), which names the asset for
-            // us and is not a name a buyer should read. Only a real filename becomes a title; when
-            // this is null the site shows its own fallback ("Property Film") instead.
-            "title": text(m, "filename")
-                .filter(|filename| !filename.trim().to_ascii_lowercase().starts_with("mux-"))
-                .map(|filename| json!(filename))
-                .unwrap_or(Value::Null),
-            "caption": at(m, "caption"),
-            "aspectRatio": at(m, "aspectRatio"),
-            "durationSeconds": at(m, "durationSeconds"),
-        }))
+        .map(|m| {
+            json!({
+                "id": at(m, "id"),
+                "playbackId": at(m, "muxPlaybackId"),
+                "role": if text(m, "role") == Some("short") { "short" } else { "video" },
+                // A film Mux holds was never uploaded under a filename: `attach_property_video` stores
+                // `mux-<asset id>` in that column (db/src/media/media_row.rs), which names the asset for
+                // us and is not a name a buyer should read. Only a real filename becomes a title; when
+                // this is null the site shows its own fallback ("Property Film") instead.
+                "title": text(m, "filename")
+                    .filter(|filename| !filename.trim().to_ascii_lowercase().starts_with("mux-"))
+                    .map(|filename| json!(filename))
+                    .unwrap_or(Value::Null),
+                "caption": at(m, "caption"),
+                "aspectRatio": at(m, "aspectRatio"),
+                "durationSeconds": at(m, "durationSeconds"),
+            })
+        })
         .collect();
     let documents: Vec<Value> = media
         .iter()

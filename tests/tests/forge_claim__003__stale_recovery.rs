@@ -129,7 +129,7 @@ async fn story_status(pool: &PgPool, story_id: &str) -> String {
 async fn forge_claim_003__stale_recovery() {
     const HARNESS: &str = "ForgeHarness/L2 Persistence";
 
-    let harness = ForgeHarness::connect_declared(None, Some("test")).await.expect(
+    let harness = ForgeHarness::connect_declared(Some("test")).await.expect(
         "DATABASE_URL_DEV must point at a disposable DEV database; the harness refuses PROD before connecting",
     );
     assert_eq!(

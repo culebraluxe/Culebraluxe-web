@@ -30,7 +30,7 @@ pub struct AccountingHarness {
 impl AccountingHarness {
     /// Read the declared environment, refuse PRODUCTION, connect, and wrap the production accounting DAO.
     ///
-    /// This is the entry point an accounting contract test should use: it resolves `VERCEL_ENV`/`APP_ENV` exactly as
+    /// This is the entry point an accounting contract test should use: it resolves `APP_ENV` exactly as
     /// production does and returns the harness's refusal — never a production pool — when the declaration is
     /// production. It therefore runs only where a disposable DEV target is declared and `DATABASE_URL_DEV` is set.
     pub async fn connect_from_env() -> Result<Self, HarnessDbError> {
@@ -39,11 +39,8 @@ impl AccountingHarness {
     }
 
     /// Like [`connect_from_env`](Self::connect_from_env), with the environment declaration supplied by the caller.
-    pub async fn connect_declared(
-        vercel_env: Option<&str>,
-        app_env: Option<&str>,
-    ) -> Result<Self, HarnessDbError> {
-        let database = TestDatabase::connect_declared(vercel_env, app_env).await?;
+    pub async fn connect_declared(app_env: Option<&str>) -> Result<Self, HarnessDbError> {
+        let database = TestDatabase::connect_declared(app_env).await?;
         Ok(Self::wrap(database))
     }
 

@@ -59,7 +59,7 @@ const PROOF_PREFIX: &str = "TST-FORGE-CLAIM-001-";
 async fn connect_dev() -> TestDatabase {
     let mut last: Option<String> = None;
     for attempt in 1..=4 {
-        match TestDatabase::connect_declared(Some("dev"), Some("dev")).await {
+        match TestDatabase::connect_declared(Some("dev")).await {
             Ok(database) => return database,
             Err(error) => {
                 eprintln!("proof: DEV connect attempt {attempt} failed: {error}");

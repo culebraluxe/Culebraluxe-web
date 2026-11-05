@@ -38,145 +38,104 @@ fn runtime_env_001__environment_target_resolution_is_deterministic_across_app_en
     let mut env = RuntimeHarness::acquire();
     let api = "environment target resolution";
 
-    // ---- VERCEL_ENV takes priority over APP_ENV ----
-    // production
+    // ---- APP_ENV is the only declaration (W2.1) ----
+    // The resolver takes one argument, so a Vercel environment name cannot reach it at all. These pin the values
+    // that used to be Vercel's: `preview` is not a declaration in this application and is refused, not guessed at.
     assert_eq!(
-        resolve_declared_target(Some("production"), Some("development")).unwrap(),
-        DbTarget::Prod,
-        "{api}: VERCEL_ENV=production must win over APP_ENV=development"
-    );
-    assert_eq!(
-        resolve_declared_target(Some("production"), Some("dev")).unwrap(),
-        DbTarget::Prod,
-        "{api}: VERCEL_ENV=production must win over APP_ENV=dev"
-    );
-    assert_eq!(
-        resolve_declared_target(Some("production"), None).unwrap(),
-        DbTarget::Prod,
-        "{api}: VERCEL_ENV=production alone must be PROD"
-    );
-
-    // preview -> DEV
-    assert_eq!(
-        resolve_declared_target(Some("preview"), Some("production")).unwrap(),
+        resolve_declared_target(Some("development")).unwrap(),
         DbTarget::Dev,
-        "{api}: VERCEL_ENV=preview must be DEV even with APP_ENV=production"
+        "{api}: APP_ENV=development must be DEV"
     );
     assert_eq!(
-        resolve_declared_target(Some("preview"), None).unwrap(),
+        resolve_declared_target(Some("dev")).unwrap(),
         DbTarget::Dev,
-        "{api}: VERCEL_ENV=preview alone must be DEV"
+        "{api}: APP_ENV=dev must be DEV"
     );
-
-    // development -> DEV
-    assert_eq!(
-        resolve_declared_target(Some("development"), Some("production")).unwrap(),
-        DbTarget::Dev,
-        "{api}: VERCEL_ENV=development must be DEV even with APP_ENV=production"
-    );
-    assert_eq!(
-        resolve_declared_target(Some("development"), None).unwrap(),
-        DbTarget::Dev,
-        "{api}: VERCEL_ENV=development alone must be DEV"
+    assert!(
+        resolve_declared_target(Some("preview")).is_err(),
+        "{api}: preview is a Vercel environment name, not a declaration"
     );
 
     // ---- APP_ENV when VERCEL_ENV not set ----
     // production variants
     assert_eq!(
-        resolve_declared_target(None, Some("production")).unwrap(),
+        resolve_declared_target(Some("production")).unwrap(),
         DbTarget::Prod,
         "{api}: APP_ENV=production must be PROD"
     );
     assert_eq!(
-        resolve_declared_target(None, Some("prod")).unwrap(),
+        resolve_declared_target(Some("prod")).unwrap(),
         DbTarget::Prod,
         "{api}: APP_ENV=prod must be PROD"
     );
     assert_eq!(
-        resolve_declared_target(None, Some("PRODUCTION")).unwrap(),
+        resolve_declared_target(Some("PRODUCTION")).unwrap(),
         DbTarget::Prod,
         "{api}: APP_ENV=PRODUCTION (uppercase) must be PROD"
     );
     assert_eq!(
-        resolve_declared_target(None, Some("Prod")).unwrap(),
+        resolve_declared_target(Some("Prod")).unwrap(),
         DbTarget::Prod,
         "{api}: APP_ENV=Prod (mixed case) must be PROD"
     );
 
     // development variants
     assert_eq!(
-        resolve_declared_target(None, Some("development")).unwrap(),
+        resolve_declared_target(Some("development")).unwrap(),
         DbTarget::Dev,
         "{api}: APP_ENV=development must be DEV"
     );
     assert_eq!(
-        resolve_declared_target(None, Some("dev")).unwrap(),
+        resolve_declared_target(Some("dev")).unwrap(),
         DbTarget::Dev,
         "{api}: APP_ENV=dev must be DEV"
     );
     assert_eq!(
-        resolve_declared_target(None, Some("test")).unwrap(),
+        resolve_declared_target(Some("test")).unwrap(),
         DbTarget::Dev,
         "{api}: APP_ENV=test must be DEV"
     );
     assert_eq!(
-        resolve_declared_target(None, Some("testing")).unwrap(),
+        resolve_declared_target(Some("testing")).unwrap(),
         DbTarget::Dev,
         "{api}: APP_ENV=testing must be DEV"
     );
     assert_eq!(
-        resolve_declared_target(None, Some("DEVELOPMENT")).unwrap(),
+        resolve_declared_target(Some("DEVELOPMENT")).unwrap(),
         DbTarget::Dev,
         "{api}: APP_ENV=DEVELOPMENT (uppercase) must be DEV"
     );
 
     // ---- NEGATIVE: Unknown values are refused ----
-    // Unknown VERCEL_ENV falls through to APP_ENV
-    assert_eq!(
-        resolve_declared_target(Some("unknown"), Some("production")).unwrap(),
-        DbTarget::Prod,
-        "{api}: unknown VERCEL_ENV must fall through to APP_ENV=production"
-    );
-    assert_eq!(
-        resolve_declared_target(Some("unknown"), Some("dev")).unwrap(),
-        DbTarget::Dev,
-        "{api}: unknown VERCEL_ENV must fall through to APP_ENV=dev"
-    );
 
     // Unknown APP_ENV with no VERCEL_ENV is refused
-    let err = resolve_declared_target(None, Some("staging")).unwrap_err();
+    let err = resolve_declared_target(Some("staging")).unwrap_err();
     assert!(
         err.to_string().contains("database target is undeclared"),
         "{api}: unknown APP_ENV must be refused, got: {err}"
     );
 
-    let err = resolve_declared_target(None, Some("local")).unwrap_err();
+    let err = resolve_declared_target(Some("local")).unwrap_err();
     assert!(
         err.to_string().contains("database target is undeclared"),
         "{api}: unknown APP_ENV must be refused, got: {err}"
     );
 
     // ---- NEGATIVE: Empty/whitespace treated as unset ----
-    let err = resolve_declared_target(Some(""), None).unwrap_err();
-    assert!(
-        err.to_string().contains("database target is undeclared"),
-        "{api}: empty VERCEL_ENV must be refused"
-    );
-
-    let err = resolve_declared_target(None, Some("")).unwrap_err();
+    let err = resolve_declared_target(Some("")).unwrap_err();
     assert!(
         err.to_string().contains("database target is undeclared"),
         "{api}: empty APP_ENV must be refused"
     );
 
-    let err = resolve_declared_target(Some("  "), Some("  ")).unwrap_err();
+    let err = resolve_declared_target(Some("  ")).unwrap_err();
     assert!(
         err.to_string().contains("database target is undeclared"),
         "{api}: whitespace-only must be refused"
     );
 
     // ---- NEGATIVE: Both unset is refused ----
-    let err = resolve_declared_target(None, None).unwrap_err();
+    let err = resolve_declared_target(None).unwrap_err();
     assert!(
         err.to_string().contains("database target is undeclared"),
         "{api}: both unset must be refused"
@@ -184,19 +143,16 @@ fn runtime_env_001__environment_target_resolution_is_deterministic_across_app_en
 
     // ---- DETERMINISM: Same inputs always produce same outputs ----
     for _ in 0..10 {
+        assert_eq!(resolve_declared_target(Some("dev")).unwrap(), DbTarget::Dev);
         assert_eq!(
-            resolve_declared_target(Some("production"), Some("dev")).unwrap(),
+            resolve_declared_target(Some("production")).unwrap(),
             DbTarget::Prod
         );
         assert_eq!(
-            resolve_declared_target(None, Some("production")).unwrap(),
-            DbTarget::Prod
-        );
-        assert_eq!(
-            resolve_declared_target(None, Some("development")).unwrap(),
+            resolve_declared_target(Some("development")).unwrap(),
             DbTarget::Dev
         );
-        assert!(resolve_declared_target(None, None).is_err());
+        assert!(resolve_declared_target(None).is_err());
     }
 
     // ---- EXECUTION_ENV and FORGE_STORE are NOT read by resolve_declared_target ----
@@ -210,11 +166,11 @@ fn runtime_env_001__environment_target_resolution_is_deterministic_across_app_en
 
     // Core resolution unchanged
     assert_eq!(
-        resolve_declared_target(Some("production"), None).unwrap(),
+        resolve_declared_target(Some("production")).unwrap(),
         DbTarget::Prod
     );
     assert_eq!(
-        resolve_declared_target(None, Some("development")).unwrap(),
+        resolve_declared_target(Some("development")).unwrap(),
         DbTarget::Dev
     );
 }
