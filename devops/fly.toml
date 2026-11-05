@@ -36,6 +36,9 @@ kill_timeout = "30s"
     method = "GET"
     path = "/healthz"
 
+# 1 GB, not 512 MB: on 2026-11-11 both machines were OOM-killed mid-upload (a photo decode plus its four
+# derivatives needs more than 512 MB — the upload cap is 50 MB per file). A killed machine drops the request in
+# flight, which reads as "the save did not work".
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "512mb"
+  memory = "1gb"

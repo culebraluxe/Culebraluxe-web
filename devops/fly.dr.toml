@@ -40,6 +40,8 @@ kill_timeout = "30s"
     method = "GET"
     path = "/healthz"
 
+# Same 1 GB as production: the standby runs the same image and the same upload path, so a smaller machine would
+# fail exactly where production failed on 2026-11-11.
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "512mb"
+  memory = "1gb"
