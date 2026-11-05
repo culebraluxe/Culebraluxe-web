@@ -52,6 +52,8 @@ pub fn icon(name: &str, class: &str, stroke_width: &str) -> Option<String> {
         "heart" => "<path d=\"M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5\"></path>",
         "download" => "<path d=\"M12 15V3\"></path><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><path d=\"m7 10 5 5 5-5\"></path>",
         "external-link" => "<path d=\"M15 3h6v6\"></path><path d=\"M10 14 21 3\"></path><path d=\"M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6\"></path>",
+        // lucide `share` (v1.17: an arrow leaving a box)
+        "share" => "<path d=\"M12 2v13\"></path><path d=\"m16 6-4-4-4 4\"></path><path d=\"M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8\"></path>",
         // lucide `waves` (v1.17: waves-horizontal)
         "waves" => {
             "<path d=\"M2 12q2.5 2 5 0t5 0 5 0 5 0\"></path>\

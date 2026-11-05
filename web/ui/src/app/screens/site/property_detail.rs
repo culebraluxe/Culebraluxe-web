@@ -334,6 +334,10 @@ fn cockpit(record: &PropertyRecord, model: &Model, on_msg: &Callback<Msg>) -> Ht
         let on_msg = on_msg.clone();
         Callback::from(move |_: MouseEvent| on_msg.emit(Msg::PropertyFavoriteToggled))
     };
+    let share = {
+        let on_msg = on_msg.clone();
+        Callback::from(move |_: MouseEvent| on_msg.emit(Msg::ShareProperty))
+    };
 
     html! {
         <section class="overflow-hidden border border-brand-navy/20 bg-card shadow-[0_14px_36px_rgba(3,15,35,0.06)] lg:grid lg:min-h-[432px] lg:grid-cols-[minmax(0,1.5fr)_minmax(380px,1fr)]">
@@ -358,6 +362,13 @@ fn cockpit(record: &PropertyRecord, model: &Model, on_msg: &Callback<Msg>) -> Ht
                         if let Some(kind) = &record.kind { <span class="text-brand-navy/70">{kind.clone()}</span> }
                         if let Some(status) = &record.status { <span class="border-l border-brand-gold/40 pl-3 text-brand-gold">{status.clone()}</span> }
                     </div>
+                    // The native share sheet: Mail, Messages, WhatsApp and the rest, on the link to this record.
+                    <button type="button" onclick={share}
+                        class="mt-3 inline-flex min-h-9 items-center gap-2 border border-brand-navy/25 px-3 text-[10px] font-medium uppercase tracking-[0.16em] text-brand-navy/75 transition-colors hover:border-brand-gold hover:text-brand-gold"
+                        aria-label="Share this property" title="Share this property">
+                        { icon_html("share", "h-3.5 w-3.5", "1.75").unwrap_or_default() }
+                        {"Share"}
+                    </button>
                 </div>
 
                 <div class="flex flex-1 items-center">

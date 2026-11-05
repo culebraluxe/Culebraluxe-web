@@ -112,6 +112,55 @@ pub(super) fn share_pdf(data_uri: &str, filename: &str) -> Result<wasm_bindgen::
         .map_err(|_| ApiError::network("Share needs a direct click. Try Share again."))
 }
 
+/// Open the native share sheet for a LINK, or copy it when the browser has no sheet.
+///
+/// `path` is app-relative (`/properties/<slug>`): the absolute address is built from the document's own origin, so the
+/// link a person shares is the host they are reading (www, the fly.dev host, or localhost while developing). Called
+/// synchronously inside the click, because Safari requires user activation for `navigator.share` — and the returned
+/// Promise is the person's interaction with the sheet, settled by [`settle_share`]. No native sheet (desktop Firefox
+/// is the usual case): the link goes to the clipboard, which is the same outcome by another route.
+pub(super) fn share_link(path: &str, title: &str) -> Result<wasm_bindgen::JsValue, ApiError> {
+    let window =
+        web_sys::window().ok_or_else(|| ApiError::network("The browser window is unavailable."))?;
+    let origin = window.location().origin().unwrap_or_default();
+    let url = format!("{origin}{path}");
+    let window_value: &wasm_bindgen::JsValue = window.as_ref();
+    let navigator =
+        js_sys::Reflect::get(window_value, &wasm_bindgen::JsValue::from_str("navigator"))
+            .map_err(|_| ApiError::network("Sharing is unavailable in this browser."))?;
+
+    let share_data = js_sys::Object::new();
+    for (key, value) in [("title", title), ("text", title), ("url", url.as_str())] {
+        js_sys::Reflect::set(
+            &share_data,
+            &wasm_bindgen::JsValue::from_str(key),
+            &wasm_bindgen::JsValue::from_str(value),
+        )
+        .map_err(|_| ApiError::network("The share sheet could not be prepared."))?;
+    }
+
+    let share = js_sys::Reflect::get(&navigator, &wasm_bindgen::JsValue::from_str("share"))
+        .ok()
+        .and_then(|value| value.dyn_into::<js_sys::Function>().ok());
+    if let Some(share) = share {
+        return share
+            .call1(&navigator, &share_data)
+            .map_err(|_| ApiError::network("Share needs a direct click. Try Share again."));
+    }
+
+    let clipboard = js_sys::Reflect::get(&navigator, &wasm_bindgen::JsValue::from_str("clipboard"))
+        .map_err(|_| ApiError::network("This browser cannot share or copy the link."))?;
+    let write = js_sys::Reflect::get(&clipboard, &wasm_bindgen::JsValue::from_str("writeText"))
+        .ok()
+        .and_then(|value| value.dyn_into::<js_sys::Function>().ok())
+        .ok_or_else(|| ApiError::network("This browser cannot share or copy the link."))?;
+    write
+        .call1(&clipboard, &wasm_bindgen::JsValue::from_str(&url))
+        .map_err(|_| {
+            ApiError::network("The link could not be copied. Copy it from the address bar.")
+        })
+}
+
 /// Reports how the share sheet ended: shared, cancelled by the person (code `CANCELLED`), or refused by the browser.
 pub(super) fn settle_share<Msg: 'static>(
     promise: wasm_bindgen::JsValue,

@@ -661,6 +661,32 @@ fn slide(listing: &Listing) -> Html {
 /// One inventory card: the photograph with its badges, then the place, the price and its facts.
 /// One inventory card. `compared` is `Some` where the page offers Compare (the Buyers grid) and `None` where it does
 /// not (the Saved page).
+/// Share one listing's page from its card.
+///
+/// A button over the card's overlay anchor, and it stops the click: sharing a listing must not also open it. The
+/// sheet opens inside the click, which is what Safari requires for `navigator.share`.
+pub(crate) fn share_button(listing: &Listing, on_msg: &Callback<Msg>, class: &'static str) -> Html {
+    let onclick = {
+        let on_msg = on_msg.clone();
+        let slug = listing.slug.clone();
+        Callback::from(move |event: MouseEvent| {
+            event.prevent_default();
+            event.stop_propagation();
+            on_msg.emit(Msg::ShareListing(slug.clone()));
+        })
+    };
+    html! {
+        <button type="button" {onclick} aria-label={format!("Share {}", listing.name)} title={format!("Share {}", listing.name)}
+            class={classes!(
+                "z-30", "flex", "h-10", "w-10", "items-center", "justify-center", "rounded-full", "bg-background/80",
+                "text-foreground", "backdrop-blur-sm", "transition-colors", "duration-300", "hover:bg-background",
+                "focus-visible:outline-none", "focus-visible:ring-2", "focus-visible:ring-accent", class
+            )}>
+            { crate::icons::icon_html("share", "h-4 w-4", "2").unwrap_or_default() }
+        </button>
+    }
+}
+
 pub(crate) fn card(
     listing: &Listing,
     saved: bool,
@@ -683,6 +709,7 @@ pub(crate) fn card(
                     </span>
                 }
                 { save_heart(listing, saved, on_msg, "absolute right-4 top-4") }
+                { share_button(listing, on_msg, "absolute right-16 top-4") }
                 if let Some(compared) = compared {
                     { compare_button(listing, compared, on_msg) }
                 }

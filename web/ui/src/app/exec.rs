@@ -61,6 +61,10 @@ pub fn run<Msg: 'static>(cmd: Cmd<Msg>, deliver: &Callback<Msg>, navigator: Opti
                 Err(error) => deliver.emit(reply(Err(error))),
             }
         }
+        Cmd::ShareLink { path, title, reply } => match share_link(&path, &title) {
+            Ok(promise) => settle_share(promise, reply, deliver.clone()),
+            Err(error) => deliver.emit(reply(Err(error))),
+        },
         Cmd::VideoUpload(upload) => {
             let deliver = deliver.clone();
             spawn_local(async move {

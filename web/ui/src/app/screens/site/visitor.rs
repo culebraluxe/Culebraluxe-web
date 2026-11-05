@@ -103,6 +103,14 @@ pub enum Msg {
     MapKeyLoaded(Result<MapsKeyAnswer, ApiError>),
     MapReady(String),
     MapFailed(String),
+
+    /// The property page's share button: open the native sheet for this record's link.
+    ShareProperty,
+    /// A card's share button in the buyers grid or a homepage strip.
+    ShareListing(String),
+    /// The sheet closed (shared, cancelled) or the browser refused it. Nothing is projected: the sheet IS the
+    /// feedback, and a cancellation is not an error to shout about.
+    ShareSettled(Result<(), ApiError>),
 }
 
 /// What a page needs from the device.
@@ -263,6 +271,24 @@ pub fn update(model: &mut Model, msg: Msg) -> Cmd<Msg> {
                 }
             }
         }
+        Msg::ShareProperty => {
+            let Some(slug) = model.scope.clone().filter(|scope| !scope.is_empty()) else {
+                return Cmd::none();
+            };
+            let title = model
+                .page
+                .as_ref()
+                .and_then(|page| page.property.as_ref())
+                .map(|record| format!("CulebraLuxe — {}", record.title))
+                .unwrap_or_else(|| "CulebraLuxe".to_owned());
+            Cmd::share_link(format!("/properties/{slug}"), title, Msg::ShareSettled)
+        }
+        Msg::ShareListing(slug) => Cmd::share_link(
+            format!("/properties/{slug}"),
+            "CulebraLuxe",
+            Msg::ShareSettled,
+        ),
+        Msg::ShareSettled(_) => Cmd::none(),
         Msg::FavoritesRead(raw) => {
             model.favorites =
                 serde_json::from_str(raw.as_deref().unwrap_or("[]")).unwrap_or_default();

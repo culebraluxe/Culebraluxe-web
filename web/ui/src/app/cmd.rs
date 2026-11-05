@@ -118,6 +118,18 @@ pub enum Cmd<Msg> {
         filename: String,
         reply: Box<dyn FnOnce(Result<(), ApiError>) -> Msg>,
     },
+    /// Invoke the browser's native share sheet with a LINK — the property page, not a file.
+    ///
+    /// The same executor-owned browser capability as `SharePdf`: the sheet must open inside the click (Safari refuses
+    /// a share that follows another await), and the sheet is what offers Mail, Messages, WhatsApp and the rest. A
+    /// browser without a native sheet gets the link copied to the clipboard instead. `path` is app-relative; the
+    /// executor builds the absolute address from the document's own origin, so the shared link is the host the person
+    /// is reading.
+    ShareLink {
+        path: String,
+        title: String,
+        reply: Box<dyn FnOnce(Result<(), ApiError>) -> Msg>,
+    },
     /// Listen once through the browser's speech recognition (Safari's included) and answer what was said.
     Listen {
         reply: Box<dyn FnOnce(Result<String, ApiError>) -> Msg>,
@@ -311,6 +323,18 @@ impl<Msg: 'static> Cmd<Msg> {
         }
     }
 
+    pub fn share_link(
+        path: impl Into<String>,
+        title: impl Into<String>,
+        to_msg: impl FnOnce(Result<(), ApiError>) -> Msg + 'static,
+    ) -> Self {
+        Cmd::ShareLink {
+            path: path.into(),
+            title: title.into(),
+            reply: Box::new(to_msg),
+        }
+    }
+
     pub fn post_form(
         endpoint: impl FileEndpoint,
         fields: Vec<(String, String)>,
@@ -443,6 +467,11 @@ impl<Msg: 'static> Cmd<Msg> {
                 filename,
                 reply: Box::new(move |answer| f(reply(answer))),
             },
+            Cmd::ShareLink { path, title, reply } => Cmd::ShareLink {
+                path,
+                title,
+                reply: Box::new(move |answer| f(reply(answer))),
+            },
             Cmd::PostForm {
                 path,
                 fields,
@@ -540,6 +569,7 @@ impl<Msg> std::fmt::Debug for Cmd<Msg> {
             Cmd::Load(href) => write!(f, "Load({href})"),
             Cmd::ReplacePath(path) => write!(f, "ReplacePath({path})"),
             Cmd::SharePdf { filename, .. } => write!(f, "SharePdf({filename})"),
+            Cmd::ShareLink { path, .. } => write!(f, "ShareLink({path})"),
             Cmd::Listen { .. } => write!(f, "Listen"),
             Cmd::PreviewPdf { path, .. } => write!(f, "PreviewPdf({path})"),
             Cmd::RenderSignature { name, style, .. } => {
