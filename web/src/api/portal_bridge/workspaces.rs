@@ -315,16 +315,13 @@ pub(super) fn environment_readiness() -> Value {
     } else {
         set("MUX_TOKEN_ID_DEV") && set("MUX_TOKEN_SECRET_DEV")
     };
-    let signature_enabled =
-        value("BROKER_SIGNATURE_ENABLED").is_some_and(|v| v.eq_ignore_ascii_case("true"));
-    let signature = [
-        "BROKER_SIGNATURE_APP_USER_ID",
-        "BROKER_SIGNATURE_MEDIA_ID",
-        "BROKER_SIGNATURE_SIGNER_NAME",
-        "BROKER_SIGNATURE_LICENSE_NUMBER",
-    ]
-    .iter()
-    .all(|key| set(key));
+    // The signature policy belongs to the model, not to a list of environment variables this screen counts: the
+    // signer name and license number have defaults, the durable identity and the tag lookup supply the asset, and
+    // `BROKER_SIGNATURE_*` are EXPLICIT OVERRIDES only (middle/model/src/forms_broker_signature.rs). Count them and a
+    // correctly configured deployment reports "not ready" — which is what the panel was doing.
+    let signature_config = model::forms_broker_signature::BrokerSignatureConfig::from_env();
+    let signature_enabled = signature_config.enabled;
+    let signature = signature_config.configured;
     let all_required = if production {
         [
             database,
@@ -423,4 +420,22 @@ pub(super) async fn meta_phones() -> Value {
         })
         .collect();
     answer(phones, None, true)
+}
+
+#[cfg(test)]
+mod readiness_tests {
+    use super::*;
+
+    /// Readiness reports what the signature POLICY resolves, not how many environment variables are set.
+    ///
+    /// The panel used to demand four `BROKER_SIGNATURE_*` overrides and therefore said "not ready" for a deployment
+    /// that was configured correctly: the signer name and license number have defaults and the asset is found by tag.
+    /// This pins readiness to the model, whichever way the environment is set.
+    #[test]
+    fn readiness_follows_the_signature_policy() {
+        let policy = model::forms_broker_signature::BrokerSignatureConfig::from_env();
+        let readiness = environment_readiness();
+        assert_eq!(readiness["brokerSignatureEnabled"], policy.enabled);
+        assert_eq!(readiness["brokerSignatureConfigured"], policy.configured);
+    }
 }

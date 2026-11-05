@@ -56,8 +56,11 @@ fn media_object_cutover_002__lane_g_issuance_applied_signatures() {
         issue.contains("read_protected_asset: R,"),
         "issuance requires the store reader; a deployment without a store is refused before this seam"
     );
+    // The resolver takes the transaction's own connection (`..._object_first_on`): inside the mutation scope a
+    // second lease would wait on the non-reentrant lock — the 300 s Save hang fixed 2026-10-27 — so the object-first
+    // resolution is handed `tx.connection()` instead of acquiring one.
     assert!(
-        issue.contains("resolve_applied_signatures_object_first("),
+        issue.contains("resolve_applied_signatures_object_first_on("),
         "issuance resolves the broker pre-signature through the object-first resolver"
     );
     assert!(
